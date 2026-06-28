@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-06-27T00:00:00Z",
+  "source_video": {
+    "youtube_url": "https://www.youtube.com/watch?v=YRvf00NooN8",
+    "youtube_video_id": "YRvf00NooN8"
+  },
+  "clips": [
+    {
+      "filename": "dark-phoenix_YRvf00NooN8_clip_01_lunartech.mp4",
+      "s3_key": "<uuid>/clip_0.mp4",
+      "start_seconds": null,
+      "end_seconds": null,
+      "duration_seconds": null,
+      "watermark_present": true,
+      "captions_present": true,
+      "processing_notes": "Processed via Dark Phoenix pipeline (WhisperX + Gemini + LR-ASD + ffmpeg)"
+    },
+    {
+      "filename": "dark-phoenix_YRvf00NooN8_clip_02_lunartech.mp4",
+      "s3_key": "<uuid>/clip_1.mp4",
+      "start_seconds": null,
+      "end_seconds": null,
+      "duration_seconds": null,
+      "watermark_present": true,
+      "captions_present": true,
+      "processing_notes": "Processed via Dark Phoenix pipeline (WhisperX + Gemini + LR-ASD + ffmpeg)"
+    },
+    {
+      "filename": "dark-phoenix_YRvf00NooN8_clip_03_lunartech.mp4",
+      "s3_key": "<uuid>/clip_2.mp4",
+      "start_seconds": null,
+      "end_seconds": null,
+      "duration_seconds": null,
+      "watermark_present": true,
+      "captions_present": true,
+      "processing_notes": "Processed via Dark Phoenix pipeline (WhisperX + Gemini + LR-ASD + ffmpeg)"
+    }
+  ],
+  "notes": "Timestamps and S3 keys are populated after processing completes. Update this file with actual values from the Modal backend logs and the deployed app's clip list."
+}
