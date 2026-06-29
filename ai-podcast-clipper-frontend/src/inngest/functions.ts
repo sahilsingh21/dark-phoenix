@@ -11,8 +11,8 @@ export const processVideo = inngest.createFunction(
       limit: 1,
       key: "event.data.userId",
     },
+    triggers: [{ event: "process-video-events" }],
   },
-  { event: "process-video-events" },
   async ({ event, step }) => {
     const { uploadedFileId } = event.data as {
       uploadedFileId: string;
