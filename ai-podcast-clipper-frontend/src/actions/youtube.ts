@@ -28,9 +28,7 @@ function extractYouTubeVideoId(url: string): string | null {
       if (v && v.length === 11) return v;
 
       // /shorts/VIDEO_ID or /embed/VIDEO_ID
-      const match = parsed.pathname.match(
-        /\/(?:shorts|embed|v)\/([a-zA-Z0-9_-]{11})/,
-      );
+      const match = /\/(?:shorts|embed|v)\/([a-zA-Z0-9_-]{11})/.exec(parsed.pathname);
       if (match?.[1]) return match[1];
     }
   } catch {
