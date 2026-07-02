@@ -389,7 +389,7 @@ class AiPodcastClipper:
     @modal.enter()
     def load_model(self):
         print("Loading models")
-
+        import whisperx
         self.whisperx_model = whisperx.load_model(
             "large-v2", device="cuda", compute_type="float16")
 
