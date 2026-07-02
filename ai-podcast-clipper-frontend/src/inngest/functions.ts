@@ -71,40 +71,45 @@ export const processVideo = inngest.createFunction(
           modalPayload.youtube_url = youtubeUrl;
         }
 
-        await step.fetch(env.PROCESS_VIDEO_ENDPOINT, {
-          method: "POST",
-          body: JSON.stringify(modalPayload),
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${env.PROCESS_VIDEO_ENDPOINT_AUTH}`,
-          },
-        });
+        // Call Modal - now returns immediately
+await step.fetch(env.PROCESS_VIDEO_ENDPOINT, {
+  method: "POST",
+  body: JSON.stringify(modalPayload),
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${env.PROCESS_VIDEO_ENDPOINT_AUTH}`,
+  },
+});
 
-        const { clipsFound } = await step.run(
-          "create-clips-in-db",
-          async () => {
-            const folderPrefix = s3Key.split("/")[0]!;
+const folderPrefix = s3Key.split("/")[0]!;
 
-            const allKeys = await listS3ObjectsByPrefix(folderPrefix);
+// Poll S3 every 3 minutes for up to 3 hours
+const { clipsFound } = await step.run("poll-for-clips", async () => {
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 3 * 60 * 1000));
 
-            const clipKeys = allKeys.filter(
-              (key): key is string =>
-                key !== undefined && !key.endsWith("original.mp4"),
-            );
+    const allKeys = await listS3ObjectsByPrefix(folderPrefix);
+    const clipKeys = allKeys.filter(
+      (key): key is string =>
+        key !== undefined && !key.endsWith("original.mp4"),
+    );
 
-            if (clipKeys.length > 0) {
-              await db.clip.createMany({
-                data: clipKeys.map((clipKey) => ({
-                  s3Key: clipKey,
-                  uploadedFileId,
-                  userId,
-                })),
-              });
-            }
+    if (clipKeys.length > 0) {
+      await db.clip.createMany({
+        data: clipKeys.map((clipKey) => ({
+          s3Key: clipKey,
+          uploadedFileId,
+          userId,
+        })),
+      });
+      return { clipsFound: clipKeys.length };
+    }
 
-            return { clipsFound: clipKeys.length };
-          },
-        );
+    console.log(`[poll] attempt ${i + 1}/60 - no clips yet`);
+  }
+
+  return { clipsFound: 0 };
+});
 
         await step.run("deduct-credits", async () => {
           await db.user.update({

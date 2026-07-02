@@ -36,8 +36,9 @@ class ProcessVideoRequest(BaseModel):
 image = (modal.Image.from_registry(
     "nvidia/cuda:12.4.0-devel-ubuntu22.04", add_python="3.11")
     .apt_install(["ffmpeg", "libgl1-mesa-glx", "wget", "libcudnn8", "libcudnn8-dev", "pkg-config", "libavformat-dev", "libavcodec-dev", "libavdevice-dev", "libavutil-dev", "libswscale-dev", "libswresample-dev", "libavfilter-dev", "clang", "build-essential", "gcc", "git"])
+    .pip_install(["pip==24.0"])  # force rebuild v2
     .pip_install_from_requirements("requirements.txt")
-    .pip_install(["yt-dlp"])  # Reliable YouTube downloader
+    .pip_install(["yt-dlp"])
     .run_commands([
         "mkdir -p /usr/share/fonts/truetype/custom",
         "wget -O /usr/share/fonts/truetype/custom/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
@@ -468,67 +469,69 @@ class AiPodcastClipper:
         print(f"Identified moments response: ${response.text}")
         return response.text
 
-    @modal.fastapi_endpoint(method="POST")
-    def process_video(self, request: ProcessVideoRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
-        s3_key = request.s3_key
+@modal.fastapi_endpoint(method="POST")
+def process_video(self, request: ProcessVideoRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
+    s3_key = request.s3_key
 
-        if token.credentials != os.environ["AUTH_TOKEN"]:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail="Incorrect bearer token", headers={"WWW-Authenticate": "Bearer"})
+    if token.credentials != os.environ["AUTH_TOKEN"]:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Incorrect bearer token", headers={"WWW-Authenticate": "Bearer"})
 
-        run_id = str(uuid.uuid4())
-        base_dir = pathlib.Path("/tmp") / run_id
-        base_dir.mkdir(parents=True, exist_ok=True)
+    # Spawn background job and return immediately
+    # This prevents HTTP timeout on long videos
+    self.run_processing.spawn(s3_key, request.youtube_url)
+    return {"status": "accepted", "s3_key": s3_key}
 
-        # If a YouTube URL was supplied, download it to S3 at the provided s3_key
-        # before running the rest of the processing pipeline.
-        if request.youtube_url:
-            print(f"[process_video] YouTube ingestion requested: {request.youtube_url}")
-            try:
-                download_youtube_to_s3(request.youtube_url, s3_key)
-            except Exception as exc:
-                print(f"[process_video] YouTube download failed: {exc}")
-                raise HTTPException(status_code=500, detail=f"YouTube download failed: {exc}")
+@modal.method()
+def run_processing(self, s3_key: str, youtube_url: str = None):
+    import uuid, pathlib, shutil
 
-        # Download video file from S3 (works for both direct-upload and YouTube paths)
-        video_path = base_dir / "input.mp4"
-        s3_client = boto3.client("s3")
-        s3_client.download_file(os.environ["S3_BUCKET_NAME"], s3_key, str(video_path))
+    run_id = str(uuid.uuid4())
+    base_dir = pathlib.Path("/tmp") / run_id
+    base_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Transcription
-        transcript_segments_json = self.transcribe_video(base_dir, video_path)
-        transcript_segments = json.loads(transcript_segments_json)
+    if youtube_url:
+        print(f"[run_processing] Downloading YouTube: {youtube_url}")
+        try:
+            download_youtube_to_s3(youtube_url, s3_key)
+        except Exception as exc:
+            print(f"[run_processing] YouTube download failed: {exc}")
+            return
 
-        # 2. Identify moments for clips
-        print("Identifying clip moments")
-        identified_moments_raw = self.identify_moments(transcript_segments)
+    video_path = base_dir / "input.mp4"
+    s3_client = boto3.client("s3")
+    s3_client.download_file(os.environ["S3_BUCKET_NAME"], s3_key, str(video_path))
 
-        cleaned_json_string = identified_moments_raw.strip()
-        if cleaned_json_string.startswith("```json"):
-            cleaned_json_string = cleaned_json_string[len("```json"):].strip()
-        if cleaned_json_string.endswith("```"):
-            cleaned_json_string = cleaned_json_string[:-len("```")].strip()
+    transcript_segments_json = self.transcribe_video(base_dir, video_path)
+    transcript_segments = json.loads(transcript_segments_json)
 
-        clip_moments = json.loads(cleaned_json_string)
-        if not clip_moments or not isinstance(clip_moments, list):
-            print("Error: Identified moments is not a list")
-            clip_moments = []
+    print("Identifying clip moments")
+    identified_moments_raw = self.identify_moments(transcript_segments)
 
-        print(clip_moments)
+    cleaned_json_string = identified_moments_raw.strip()
+    if cleaned_json_string.startswith("```json"):
+        cleaned_json_string = cleaned_json_string[len("```json"):].strip()
+    if cleaned_json_string.endswith("```"):
+        cleaned_json_string = cleaned_json_string[:-len("```")].strip()
 
-        # 3. Process clips
-        for index, moment in enumerate(clip_moments[:5]):
-            if "start" in moment and "end" in moment:
-                print("Processing clip" + str(index) + " from " +
-                      str(moment["start"]) + " to " + str(moment["end"]))
-                process_clip(base_dir, video_path, s3_key,
-                             moment["start"], moment["end"], index, transcript_segments)
+    clip_moments = json.loads(cleaned_json_string)
+    if not clip_moments or not isinstance(clip_moments, list):
+        print("Error: Identified moments is not a list")
+        clip_moments = []
 
-        if base_dir.exists():
-            print(f"Cleaning up temp dir after {base_dir}")
-            shutil.rmtree(base_dir, ignore_errors=True)
+    print(clip_moments)
 
+    for index, moment in enumerate(clip_moments[:5]):
+        if "start" in moment and "end" in moment:
+            print(f"Processing clip {index}")
+            process_clip(base_dir, video_path, s3_key,
+                        moment["start"], moment["end"], index, transcript_segments)
 
+    if base_dir.exists():
+        shutil.rmtree(base_dir, ignore_errors=True)
+
+    print("Processing complete!")
+    
 @app.local_entrypoint()
 def main():
     import requests
