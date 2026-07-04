@@ -36,10 +36,14 @@ class ProcessVideoRequest(BaseModel):
 image = (modal.Image.from_registry(
     "nvidia/cuda:12.4.0-devel-ubuntu22.04", add_python="3.11")
     .apt_install(["ffmpeg", "libgl1-mesa-glx", "wget", "libcudnn8", "libcudnn8-dev", "pkg-config", "libavformat-dev", "libavcodec-dev", "libavdevice-dev", "libavutil-dev", "libswscale-dev", "libswresample-dev", "libavfilter-dev", "clang", "build-essential", "gcc", "git"])
-    .pip_install(["pip==24.0"])  # force rebuild v2
+    .pip_install(["pip==24.0", "setuptools", "wheel"])
     .pip_install_from_requirements("requirements.txt")
+    .pip_install([
+        "whisperx @ git+https://github.com/m-bain/whisperx.git@v3.2.0",
+    ])
     .pip_install(["yt-dlp"])
     .run_commands([
+        "python -c 'import whisperx; print(\"whisperx OK\")'",  # verify install
         "mkdir -p /usr/share/fonts/truetype/custom",
         "wget -O /usr/share/fonts/truetype/custom/Anton-Regular.ttf https://github.com/google/fonts/raw/main/ofl/anton/Anton-Regular.ttf",
         "fc-cache -f -v",
